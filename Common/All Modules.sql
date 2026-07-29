@@ -1,7 +1,22 @@
-------------------------------------------------------------------------------------------------
-To find the responsibility to which the concurrent program is attached to: 
-------------------------------------------------------------------------------------------------
+/*
+  ================================================================================
+  Batch: SYSADMIN / Concurrent Manager / Profile / Form Personalization queries
+  Most entries are SYSADMIN; a couple are tagged AR/OM and INV individually below.
+  ================================================================================
+*/
 
+/*
+  Purpose     : Find which responsibility(ies) a concurrent program is attached to,
+                via its request group
+  Module      : SYSADMIN
+  Tables Used : FND_REQUEST_GROUPS, FND_APPLICATION_TL, FND_REQUEST_GROUP_UNITS,
+                FND_CONCURRENT_PROGRAMS, FND_CONCURRENT_PROGRAMS_TL,
+                FND_RESPONSIBILITY, FND_RESPONSIBILITY_TL, FND_EXECUTABLES
+  Parameters  : fcpl.user_concurrent_program_name (LIKE filter, currently
+                'Min-max planning report')
+  Notes       : Returns one row per responsibility if the program is attached to
+                more than one request group/responsibility
+*/
 SELECT DISTINCT fcpl.user_concurrent_program_name,
                 fcp.concurrent_program_name,
                 fapp.application_name,
@@ -29,10 +44,17 @@ WHERE  1 = 1
        AND fcpl.user_concurrent_program_name LIKE 'Min-max planning report'
 ;
 
-------------------------------------------------------------------------------------------------
-Find the status of the previous run requests from concurrent name:
-------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Show status/timing of previous runs for a concurrent program,
+                searched by (partial) program name
+  Module      : SYSADMIN
+  Tables Used : FND_CONCURRENT_REQUESTS, FND_CONCURRENT_PROGRAMS,
+                FND_CONCURRENT_PROGRAMS_TL, FND_USER, FND_CONC_REQ_SUMMARY_V
+  Parameters  : :USER_CONCURRENT_PROGRAM_NAME
+  Notes       : PHASE_CODE and STATUS_CODE are decoded inline for readability;
+                uncomment the actual_start_date filter to restrict to recent days
+*/
 SELECT distinct ft.user_concurrent_program_name "Conc Program Name",
 fr.REQUEST_ID "Request ID",
 to_char(fr.ACTUAL_START_DATE,'dd-MON-yy hh24:mi:ss') "Started at",
@@ -58,10 +80,18 @@ and ft.user_concurrent_program_name like '%'||:USER_CONCURRENT_PROGRAM_NAME||'%'
 order by to_char(fr.ACTUAL_COMPLETION_DATE,'dd-MON-yy hh24:mi:ss') desc
 ;
 
---------------------------------------------------------------------------------------------------------------------------------------
-Concurrent Details from concurrent program name
---------------------------------------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Get technical details of a concurrent program (executable name,
+                execution method, application top, parameter list) by name
+  Module      : SYSADMIN
+  Tables Used : FND_CONCURRENT_PROGRAMS, FND_CONCURRENT_PROGRAMS_TL,
+                FND_EXECUTABLES, FND_EXECUTABLES_TL, FND_APPLICATION,
+                FND_DESCR_FLEX_COL_USAGE_VL
+  Parameters  : fcpt.user_concurrent_program_name IN-list (currently one program)
+  Notes       : parameter_list uses LISTAGG against the $SRS$ descriptive flexfield
+                to show all defined parameters for the program in one column
+*/
 SELECT fcp.concurrent_program_id,
        fcp.concurrent_program_name,
        fcpt.user_concurrent_program_name,
@@ -95,10 +125,19 @@ SELECT fcp.concurrent_program_id,
        'Koel GST STD Invoice Printing for Engines-XML'
       )
 ;
-------------------------------------------------------------------------------------------------
-To find the scheduled programs with their scheduled time: 
-------------------------------------------------------------------------------------------------
 
+
+/*
+  Purpose     : List pending/scheduled concurrent requests along with their
+                repeat pattern (interval, days-of-week) and requestor details
+  Module      : SYSADMIN
+  Tables Used : FND_CONCURRENT_REQUESTS, FND_USER, FND_CONCURRENT_PROGRAMS,
+                FND_CONCURRENT_PROGRAMS_TL, FND_PRINTER_STYLES_TL,
+                FND_CONC_RELEASE_CLASSES, FND_RESPONSIBILITY_TL, FND_LOOKUPS
+  Parameters  : none (filters PHASE_CODE = 'P' i.e. Pending)
+  Notes       : the CLASS_INFO substrings decode the release-class repeat
+                interval and days-of-week bitmask for periodic/scheduled requests
+*/
 SELECT 
 	fcr.request_id ,
 	fcpt.user_concurrent_program_name
@@ -178,13 +217,18 @@ WHERE 1 = 1
 	AND fcpt.language              = 'US'
 ORDER BY Fu.Description,
 	Fcr.Requested_Start_Date ASC
+;
 
 
-------------------------------------------------------------------------------------------------
-TO get the Scheduled request set
-------------------------------------------------------------------------------------------------
-
-
+/*
+  Purpose     : List scheduled/pending Request Sets (FNDRSSUB wrapper program)
+  Module      : SYSADMIN
+  Tables Used : FND_CONCURRENT_REQUESTS, FND_USER, FND_RESPONSIBILITY_TL,
+                FND_CONCURRENT_PROGRAMS
+  Parameters  : none
+  Notes       : filters concurrent_program_name = 'FNDRSSUB', the standard
+                internal program that drives Request Sets
+*/
 SELECT
     r.request_id,
     r.description request_set_name,
@@ -211,11 +255,13 @@ ORDER BY r.requested_start_date
 ;
 
 
-------------------------------------------------------------------------------------------------
-Get the Request_group from responsibility name
-
-------------------------------------------------------------------------------------------------
-
+/*
+  Purpose     : Get the request group name attached to a given responsibility
+  Module      : SYSADMIN
+  Tables Used : FND_REQUEST_GROUPS, FND_RESPONSIBILITY_VL
+  Parameters  : responsibility_name filter (currently 'Benefits Administrator')
+  Notes       : n/a
+*/
 SELECT responsibility_name ,
   request_group_name        ,
   frg.description
@@ -226,10 +272,17 @@ SELECT responsibility_name ,
 AND responsibility_name LIKE 'Benefits Administrator'
 ORDER BY responsibility_name;
 
---------------------------------------------------------------------------------------------------------------------
-Query To Find the parameter and there associated value sets for the concurrent
---------------------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : List all parameters (and their value sets) defined on a
+                concurrent program
+  Module      : SYSADMIN
+  Tables Used : FND_CONCURRENT_PROGRAMS, FND_CONCURRENT_PROGRAMS_TL,
+                FND_DESCR_FLEX_COL_USAGE_VL, FND_FLEX_VALUE_SETS,
+                FND_LOOKUP_VALUES
+  Parameters  : :CONCURRENT_NAME
+  Notes       : n/a
+*/
 SELECT
     fcpl.user_concurrent_program_name "Concurrent Program Name",
     fcp.concurrent_program_name "Short Name",
@@ -260,10 +313,21 @@ WHERE
     AND flv.LANGUAGE(+) = USERENV('LANG')
 ORDER BY
     fdfcuv.column_seq_num
+;
 
-------------------------------------------------------------------------------------------------
-To get the salesperson name from the invoice number: 
-------------------------------------------------------------------------------------------------
+
+/*
+  Purpose     : Get the salesperson name linked to an AR invoice, via the
+                originating Order Management sales order
+  Module      : AR / OM
+  Tables Used : RA_SALESREPS_ALL, OE_ORDER_HEADERS_ALL, RA_CUSTOMER_TRX_ALL
+  Parameters  : add a WHERE filter on rct.customer_trx_id / rct.trx_number
+                for a specific invoice
+  Notes       : relies on the invoice being AutoInvoice-created from Order
+                Management (INTERFACE_HEADER_CONTEXT = 'ORDER ENTRY',
+                CREATED_FROM = 'RAXTRX'); won't return a row for manually
+                entered AR invoices with no originating sales order
+*/
 select NAME from ra_salesreps_all WHERE SALESREP_ID=(
 select oeh.SALESREP_ID
 from oe_order_headers_all oeh,ra_customer_trx_all rct
@@ -272,11 +336,19 @@ and order_number = rct.interface_header_attribute1
 and rct.INTERFACE_HEADER_CONTEXT  =  'ORDER ENTRY'
       AND rct.created_from = 'RAXTRX'
        )
+;
 
---------------------------------------------------------------------------------------------------
-TO get the form name from the responsibility
---------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Get the Forms (.fmb) file name behind a responsibility's
+                menu/function
+  Module      : SYSADMIN
+  Tables Used : FND_RESPONSIBILITY, FND_RESPONSIBILITY_TL, FND_MENUS,
+                FND_MENU_ENTRIES, FND_FORM_FUNCTIONS, FND_FORM
+  Parameters  : responsibility_name filter
+  Notes       : returns one row per function/form on the responsibility's menu
+                tree, not just the top-level form
+*/
 SELECT frt.responsibility_name,
        --.prompt AS menu_prompt,
        ffu.function_name,
@@ -289,21 +361,38 @@ JOIN fnd_menu_entries fme ON fm.menu_id = fme.menu_id
 JOIN fnd_form_functions ffu ON fme.function_id = ffu.function_id
 JOIN fnd_form ff ON ffu.form_id = ff.form_id
 WHERE frt.responsibility_name = 'KOEL Pre-Quote Approval Superuser'
+;
 
---------------------------------------------------------------------------------------------------
-To find users and their related responsibilities
---------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Find users and their currently active responsibilities,
+                filtered by responsibility name
+  Module      : SYSADMIN
+  Tables Used : FND_USER_RESP_GROUPS_DIRECT, FND_USER, FND_RESPONSIBILITY_TL
+  Parameters  : fr.responsibility_name (LIKE filter, currently 'LGM%')
+  Notes       : END_DATE IS NULL restricts results to currently active
+                responsibility assignments only
+*/
 select fu.user_name, fu.description,fr.responsibility_name, furg.START_DATE, furg.END_DATE
 from fnd_user_resp_groups_direct furg, fnd_user fu, fnd_responsibility_tl fr
 where furg.user_id = fu.user_id 
 and furg.responsibility_id = fr.responsibility_id and fr.language = userenv('LANG')
 and furg.end_date is null and fr.responsibility_name like 'LGM%';
  
---------------------------------------------------------------------------------------------------
-To find the profile options assigned to usr:
---------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : List every profile option value assigned to a specific user,
+                at any level (Site/Application/Responsibility/User/Server/Org)
+  Module      : SYSADMIN
+  Tables Used : FND_PROFILE_OPTION_VALUES, FND_PROFILE_OPTIONS,
+                FND_PROFILE_OPTIONS_TL, FND_APPLICATION_TL, FND_USER,
+                FND_RESPONSIBILITY_TL, FND_NODES, HR_ALL_ORGANIZATION_UNITS
+  Parameters  : d.user_name (currently 'IS407703')
+  Notes       : LEVEL_ID decode - 10001 Site, 10002 Application,
+                10003 Responsibility, 10004 User, 10005 Server, 10006 Org.
+                Uncomment the USER_PROFILE_OPTION_NAME filter to narrow to one
+                specific profile option
+*/
 SELECT DISTINCT POT.PROFILE_OPTION_NAME "PROFILE_CODE" 
   , POT.USER_PROFILE_OPTION_NAME "PROFILE_NAME" 
        , DECODE (a.profile_option_value
@@ -353,11 +442,20 @@ ORDER BY PROFILE_NAME ,
   LEVEL_IDENTIFIER ,
   LEVEL_NAME ,
   PF_VALUE
+;
 
---------------------------------------------------------------------------------------------------
-Check Profile options for a responsibility
---------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Check a specific profile option's value(s) set at the
+                Responsibility level for a given responsibility
+  Module      : SYSADMIN
+  Tables Used : FND_PROFILE_OPTIONS, FND_PROFILE_OPTIONS_VL,
+                FND_PROFILE_OPTION_VALUES, FND_USER, FND_RESPONSIBILITY_VL,
+                FND_APPLICATION
+  Parameters  : g.responsibility_name filter
+  Notes       : LEVEL_ID = 10003 restricts results to Responsibility-level
+                profile values only (not Site/App/User)
+*/
 SELECT g.responsibility_id,b.user_profile_option_name "Long Name" ,
   a.profile_option_name "Short Name" ,
   NVL(g.responsibility_name,c.level_value)  "Level Value" ,
@@ -383,12 +481,17 @@ AND c.level_id            = 10003
 AND UPPER(g.responsibility_name) like UPPER('SSOB-India Local Inventory Superuser')
 --and g.responsibility_name  like '%PCP3%'
 ORDER BY b.user_profile_option_name,  c.level_id
---------------------------------------------------------------------------------------------------------------------------------------
+;
 
---------------------------------------------------------------------------------------------------------------------------------------
-Get a responsibilities attached to a user
---------------------------------------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Get all currently active responsibilities attached to a user,
+                with each responsibility's own effective date range
+  Module      : SYSADMIN
+  Tables Used : FND_USER, FND_USER_RESP_GROUPS_DIRECT, FND_RESPONSIBILITY_VL
+  Parameters  : add a WHERE on fu.user_name for a specific user
+  Notes       : date-range checks treat NULL start/end dates as "always active"
+*/
 SELECT
 fu.user_name,
 fu.user_id,
@@ -412,10 +515,17 @@ AND SYSDATE BETWEEN NVL(frv.start_date, SYSDATE) AND NVL(frv.end_date, SYSDATE +
 ORDER BY
 fu.user_name;
 
---------------------------------------------------------------------------------------------------------------------------------------
-Get the path for the RDF
---------------------------------------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Find the filesystem path (reports/US) and execution file name
+                for a report executable, by execution file name
+  Module      : SYSADMIN
+  Tables Used : FND_EXECUTABLES_VL, FND_APPLICATION_VL
+  Parameters  : EXECUTION_FILE_NAME (LIKE filter, currently '%KEXOASC%')
+  Notes       : EXECUTION_METHOD_CODE filter is set to 'P' here to match this
+                specific executable's type - confirm/adjust the code if
+                reusing this for a different executable
+*/
 SELECT APPLICATION_NAME,
        '$' || BASEPATH || '/' || 'reports/US' Reports_Path,
        EXECUTION_FILE_NAME
@@ -425,16 +535,29 @@ SELECT APPLICATION_NAME,
        AND EXECUTION_FILE_NAME LIKE '%KEXOASC%'
 ;
 
---------------------------------------------------------------------------------------------------------------------------------------
-Check ACL privileges
---------------------------------------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : Check Oracle Network ACL entries and privileges configured in
+                the database (relevant when EBS/PLSQL calls out via UTL_HTTP,
+                UTL_SMTP, UTL_TCP etc.)
+  Module      : SYSADMIN / DBA
+  Tables Used : DBA_NETWORK_ACLS, DBA_NETWORK_ACL_PRIVILEGES
+  Parameters  : none
+  Notes       : requires DBA-level privileges to query these dictionary views
+*/
 SELECT * FROM DBA_NETWORK_ACLS;
 SELECT * FROM DBA_NETWORK_ACL_PRIVILEGES;
 
---------------------------------------------------
-SUBINVENTORY AND ONHAND DETAILS
----------------------------------------------------
+
+/*
+  Purpose     : Get on-hand quantity for an item in a specific subinventory
+                within an organization
+  Module      : INV
+  Tables Used : MTL_ONHAND_QUANTITIES, MTL_SYSTEM_ITEMS_KFV
+  Parameters  : organization_id, subinventory_code, inventory_item_id are
+                hardcoded below - parameterize with bind variables as needed
+  Notes       : n/a
+*/
 SELECT msik.concatenated_segments, moq.transaction_quantity, moq.organization_id, moq.subinventory_code
 FROM mtl_onhand_quantities moq, mtl_system_items_kfv msik
 where moq.organization_id = 2966
@@ -445,10 +568,16 @@ and msik.inventory_item_id = 5
 --and msik.concatenated_segments = ''
 ;
 
-------------------------------------------------------------------------------------------------------
-FORM PERSONALIZATION
-------------------------------------------------------------------------------------------------------
 
+/*
+  Purpose     : List Form Personalization rules/actions defined on a given
+                form, optionally filtered by target object or property value
+  Module      : SYSADMIN / FORM_PERSONALIZATION
+  Tables Used : FND_FORM_VL, FND_FORM_CUSTOM_RULES, FND_FORM_CUSTOM_ACTIONS
+  Parameters  : ffv.form_name (currently 'RCVTXERT'); target_object /
+                property_value filter (currently '%DISPLAY5%')
+  Notes       : ENABLED = 'Y' restricts results to currently active rules only
+*/
   SELECT ffv.form_id,
          ffv.form_name,
          ffv.user_form_name,
@@ -468,3 +597,4 @@ FORM PERSONALIZATION
 
          AND ffca.enabled = 'Y'
 ORDER BY ffv.form_name, ffcr.sequence
+;
