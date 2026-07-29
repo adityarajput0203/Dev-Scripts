@@ -1,7 +1,7 @@
 --path finding of seeded objects:
 select distinct value
 from   fnd_env_context
-where  variable_name = 'CUSTOM_TOP'
+where  variable_name = 'CUSTOM_TOP';
 
 -- Query to check concurrent program inside request set
 SELECT rs.user_request_set_name Set_Name,
@@ -34,4 +34,29 @@ AND lv.lookup_type = 'CP_EXECUTION_METHOD_CODE'
 AND lv.lookup_code = e.execution_method_code
 AND rs.user_request_set_name = 'KOEL Populate Warranty Claims to AP'
 AND lv.language='US'
-ORDER BY rss.display_sequence
+ORDER BY rss.display_sequence;
+
+
+---------------------------------------------------------
+-- Employee manager query
+SELECT
+       emp.person_id            AS emp_person_id,
+       emp.employee_number      AS emp_emp_no,
+       emp.full_name            AS emp_name,
+ 
+       mgr.person_id            AS mgr_person_id,
+       mgr.employee_number      AS mgr_emp_no,
+       mgr.full_name            AS mgr_name,
+ 
+       paaf.supervisor_id       AS supervisor_person_id
+FROM   per_all_people_f emp,
+       per_all_assignments_f paaf,
+       per_all_people_f mgr
+WHERE  emp.person_id = paaf.person_id
+AND    paaf.supervisor_id = mgr.person_id
+AND    TRUNC(SYSDATE) BETWEEN emp.effective_start_date
+                          AND emp.effective_end_date
+AND    TRUNC(SYSDATE) BETWEEN paaf.effective_start_date
+                          AND paaf.effective_end_date
+AND    TRUNC(SYSDATE) BETWEEN mgr.effective_start_date
+                          AND mgr.effective_end_date;
